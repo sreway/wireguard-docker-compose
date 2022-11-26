@@ -1,0 +1,10 @@
+---
+- name: Prepare only bastion hosts
+  import_playbook: prepare_bastion.yml
+  
+- name: Prepare hosts
+  import_playbook: prepare.yml
+
+- name: Docker install and configure
+  import_playbook: docker.yml
+...

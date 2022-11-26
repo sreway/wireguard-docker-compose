@@ -1,0 +1,42 @@
+---
+roles:
+  - src: https://github.com/sreway/ansible-role-locales-and-timezone.git
+    name: locales-and-timezone
+    scm: git
+    version: 1.0.0
+  
+  - src: https://github.com/sreway/ansible-role-users.git
+    name: users
+    scm: git
+    version: 1.0.1
+
+  - src: https://github.com/sreway/ansible-role-sudo.git
+    name: sudo
+    scm: git
+    version: 1.0.0
+
+  - src: https://github.com/sreway/ansible-role-packages.git
+    name: packages
+    scm: git
+    version: 1.0.0
+
+  - src: https://github.com/geerlingguy/ansible-role-security.git
+    name: security
+    scm: git
+    version: 2.2.0
+
+  - src: https://github.com/geerlingguy/ansible-role-security.git
+    name: security
+    scm: git
+    version: 2.2.0
+
+  - src: https://github.com/geerlingguy/ansible-role-docker.git
+    name: docker
+    scm: git
+    version: 6.0.1
+
+  - src: https://github.com/geerlingguy/ansible-role-pip.git
+    name: pip
+    scm: git
+    version: 2.2.0
+...

@@ -1,0 +1,107 @@
+---
+- hosts: new_instance:!floating_ip
+  vars:
+    ansible_ssh_user: "{{ sudo_users |  map(attribute='username') | random }}"
+    bastion_user: "{{ sudo_users |  map(attribute='username') | random }}"
+  tasks:
+    - block:       
+        - include_role:
+            name: packages
+          tags: [docker, packages]
+
+        - include_role:
+            name: pip
+          tags: [docker, pip]
+
+        - include_role:
+            name: docker
+          tags: [docker]
+
+        - name: Update getent database
+          getent:
+            database: passwd
+          tags: [docker, rootless]
+
+      become: true
+      when: inventory_hostname in groups['docker']
+
+  post_tasks:
+    - block:
+        - name: Set users home and uid dictionaries
+          set_fact:
+            users_home: "{{ users_home | d({}) | combine({item: getent_passwd[item][4]}) }}"
+            users_uid: "{{ users_home | d({}) | combine({item: getent_passwd[item][1]}) }}"
+          loop: "{{ users | difference(sudo_users) | map(attribute='username') }}"
+          tags: [docker, rootless]
+      
+        - name: Create ansible tmp folder
+          file:
+            path: '{{ users_home[item] }}/.ansible/tmp'
+            state: 'directory'
+            owner: '{{ item }}'
+            mode: 0700
+            recurse: yes
+          loop: "{{ users | difference(sudo_users) | map(attribute='username') }}"
+          become: yes
+          tags: [docker, rootless]
+
+        - name: Exposing privileged ports 
+          shell: setcap cap_net_bind_service=ep $(which rootlesskit)
+          become: true
+          when: expose_privileged_ports
+          tags: [docker, rootless]
+
+        - name: Disable docker service
+          systemd:
+            name: '{{ item }}'
+            state: stopped
+            enabled: false
+          loop:
+            - docker.socket
+            - docker.service
+          become: true
+          tags: [docker, rootless]
+
+        - name: Remove docker.socket
+          file:
+            path: /var/run/docker.sock
+            state: absent
+          become: true
+          tags: [docker, rootless]
+
+        - name: Enable lingering for docker user
+          shell: |
+            loginctl enable-linger {{ item }}
+          args:
+            executable: /bin/bash
+          loop:  "{{ users | difference(sudo_users) | map(attribute='username') }}"
+          become: true
+          become_user: '{{ item }}'
+          tags: [docker, rootless]
+
+        - name: Install docker rootless 
+          environment:
+            PATH: "{{ users_home[item] }}/.local/bin:{{ users_home[item] }}/bin:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin"
+            XDG_RUNTIME_DIR: "/run/user/{{ users_uid[item] }}"
+          shell: dockerd-rootless-setuptool.sh install
+          args:
+            executable: /bin/bash
+          loop:  "{{ users | difference(sudo_users) | map(attribute='username') }}"
+          become: true
+          become_user: '{{ item }}'
+          tags: [docker, rootless]
+
+        - name: Ensure variables for docker rootless are added to .bashrc
+          blockinfile:
+            dest: "{{ users_home[item] }}/.bashrc"
+            block: |
+              export PATH=/usr/bin:$PATH
+              export DOCKER_HOST=unix:///run/user/{{ users_uid[item] }}/docker.sock
+            marker: '# {mark} ANSIBLE MANAGED BLOCK - docker rootless'
+            insertbefore: EOF
+            create: yes
+          become: true
+          loop: "{{ users | difference(sudo_users) | map(attribute='username') }}"
+          tags: [docker, rootless]
+      when: inventory_hostname in groups['docker']
+...

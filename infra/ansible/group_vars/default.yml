@@ -1,0 +1,5 @@
+---
+# Coonection settings
+ansible_ssh_args: -o ControlMaster=auto -o ControlPersist=15m -o ForwardAgent=yes
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand="ssh -o StrictHostKeyChecking=no -W %h:%p -q {{ bastion_user }}@{{ groups.bastion | difference(groups.default) | random }}"'
+...

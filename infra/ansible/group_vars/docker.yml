@@ -1,0 +1,22 @@
+---
+# Ansible docker role variables
+docker_install_compose: false
+docker_edition: 'ce'
+docker_packages:
+    - "docker-{{ docker_edition }}"
+    - "docker-{{ docker_edition }}-cli"
+    - "docker-{{ docker_edition }}-rootless-extras"
+docker_packages_state: present
+docker_service_state: stopped
+docker_service_enabled: false
+
+# Ansible pip role variables
+pip_install_packages:
+  - docker
+
+# Ansible packages role variables
+packages_list_apt: [vim, slirp4netns, dbus-user-session, uidmap]
+
+# Ansible play variables
+expose_privileged_ports: true
+...

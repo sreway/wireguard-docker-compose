@@ -1,0 +1,49 @@
+---
+# Ansible settings
+ansible_ssh_user: "{{ sudo_users |  map(attribute='username') | random }}"
+bastion_user: "{{ sudo_users |  map(attribute='username') | random }}"
+
+ansible_python_interpreter: auto
+ansible_ssh_common_args: -o StrictHostKeyChecking=no
+ansible_ssh_pipelining: true
+ansible_ssh_transfer_method: piped
+ansible_ssh_args: -o ControlMaster=auto -o ControlPersist=15m
+
+# Ansible locales and timezone role variables
+timezone: Europe/Moscow
+locales:
+  - ru_RU.UTF-8
+  - en_US.UTF-8
+
+# Ansible users role variables
+# TO-DO move keys into variable
+users:
+  - username: "{{ lookup('env', 'SSH_USER_ADMIN') }}"
+    createhome: true
+    shell: /bin/bash
+    description: 'admin user account'
+    groups: 
+      - sudo
+    ssh_key: "{{ lookup('env', 'SSH_PUBLIC_KEY') }}"
+  
+  - username: "{{ lookup('env', 'SSH_NOT_ADMIN_USER') }}"
+    createhome: true
+    shell: /bin/bash
+    description: 'CI not root user account'
+    ssh_key: "{{ lookup('env', 'SSH_PUBLIC_KEY') }}"
+
+# Ansible users variables for provisioning play
+sudo_users: "{{ users | selectattr('groups', 'defined') | selectattr('groups', 'contains', 'sudo') }}"
+
+# Ansible security role variables
+security_fail2ban_enabled: true
+security_autoupdate_reboot: false
+security_ssh_password_authentication: "no"
+security_ssh_usedns: "no"
+security_ssh_permit_empty_password: "no"
+security_ssh_challenge_response_auth: "no"
+security_ssh_gss_api_authentication: "no"
+security_ssh_x11_forwarding: "no"
+security_ssh_permit_root_login: "no"
+security_ssh_allowed_users: "{{ users | map(attribute='username') | list }}"
+...

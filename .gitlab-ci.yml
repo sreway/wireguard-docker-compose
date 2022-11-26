@@ -1,0 +1,174 @@
+image:
+  name: registry.gitlab.com/sreway/iac/docker/terraform-ansible-runner:1.0.0
+
+variables:
+  TF_ROOT: ${CI_PROJECT_DIR}/infra
+  TF_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${CI_PROJECT_NAME}
+  TF_VAR_ENVIRONMENT_NAME: ${CI_PROJECT_PATH_SLUG}_${CI_PROJECT_ID}_${CI_PROJECT_NAME}
+  TF_VAR_SHORT_ENVIRONMENT_NAME: ${CI_PROJECT_ID}-${CI_PROJECT_NAME}
+  TF_IN_AUTOMATION: "true"
+  TF_PLAN_JSON: ${TF_ROOT}/plan.json
+  TF_PLAN: ${TF_ROOT}/plan.tfplan
+  TF_CACHE: ${TF_ROOT}/.terraform
+  TF_LOCK_FILE: ${TF_ROOT}/.terraform.lock.hcl
+
+cache:
+  key: ${CI_COMMIT_SHA}
+  paths:
+    - ${TF_CACHE}
+
+before_script:
+  - mkdir -p ~/.ssh
+  - chmod 700 ~/.ssh
+  - eval "$(ssh-agent -s)"
+  - echo "$CI_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+  - chmod 600 ~/.ssh/id_rsa
+  - ssh-add ~/.ssh/id_rsa
+
+.gitlab-tf-backend: &gitlab-tf-backend
+  - export TF_HTTP_ADDRESS=${TF_ADDRESS}
+  - export TF_HTTP_LOCK_ADDRESS=${TF_ADDRESS}/lock
+  - export TF_HTTP_LOCK_METHOD=POST
+  - export TF_HTTP_UNLOCK_ADDRESS=${TF_ADDRESS}/lock
+  - export TF_HTTP_UNLOCK_METHOD=DELETE
+  - export TF_HTTP_USERNAME=gitlab-ci-token
+  - export TF_HTTP_PASSWORD=${CI_JOB_TOKEN}
+  - export TF_HTTP_RETRY_WAIT_MIN=5
+  - echo "Using HTTP Backend at $TF_HTTP_ADDRESS"
+  - cd ${TF_ROOT}
+  - terraform --version
+
+stages:
+  - prepare_environment
+  - deploy
+  - destroy_environment
+
+tf_init:
+  stage: prepare_environment
+  script:
+    - *gitlab-tf-backend
+    - terraform init -reconfigure
+  artifacts:
+    paths:
+      - ${TF_CACHE}
+      - ${TF_LOCK_FILE}
+  environment:
+    name: ${TF_VAR_SHORT_ENVIRONMENT_NAME}
+    action: prepare
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_TAG
+      when: on_success
+  tags:
+    - common-docker
+
+tf_validate:
+  stage: prepare_environment
+  needs:
+    - tf_init
+  dependencies:
+    - tf_init
+  script:
+    - *gitlab-tf-backend
+    - terraform validate
+    - terraform fmt -check -recursive
+  environment:
+    name: ${TF_VAR_SHORT_ENVIRONMENT_NAME}
+    action: prepare
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_TAG
+      when: on_success
+  tags:
+    - common-docker
+
+tf_plan:
+  stage: prepare_environment
+  needs:
+    - tf_init
+    - tf_validate
+  dependencies:
+    - tf_init
+  before_script:
+    - apk --no-cache add jq
+  script:
+    - *gitlab-tf-backend
+    - terraform plan -out=${TF_PLAN}
+    - terraform show --json ${TF_PLAN} | jq -r '([.resource_changes[]?.change.actions?]|flatten)|{"create":(map(select(.=="create"))|length),"update":(map(select(.=="update"))|length),"delete":(map(select(.=="delete"))|length)}' > ${TF_PLAN_JSON}
+  environment:
+    name: ${TF_VAR_SHORT_ENVIRONMENT_NAME}
+    action: prepare
+  artifacts:
+    name: plan
+    reports:
+      terraform: ${TF_PLAN_JSON}
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_TAG
+      when: on_success
+  tags:
+    - common-docker
+tf_apply:
+  stage: prepare_environment
+  needs:
+    - tf_init
+    - tf_plan
+  dependencies:
+    - tf_init
+    - tf_plan
+  script:
+    - *gitlab-tf-backend
+    - terraform apply -auto-approve
+    - terraform output -raw ssh_config > ${TF_ROOT}/ssh_config
+  artifacts:
+    name: ssh_config
+    paths:
+      - ${TF_ROOT}/ssh_config
+
+  environment:
+    name: ${TF_VAR_SHORT_ENVIRONMENT_NAME}
+    on_stop: tf_destroy
+    auto_stop_in: 8 hours
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_TAG
+      when: on_success
+  tags:
+    - common-docker
+
+deploy:
+  stage: deploy
+  image: docker:latest
+  needs:
+    - job: tf_apply
+      artifacts: true
+  resource_group: deploy
+  script:
+    - cp ${TF_ROOT}/ssh_config ~/.ssh/config
+    - cd ${CI_PROJECT_DIR}
+    - DOCKER_UID=`ssh docker-node "id -u"`
+    - export DOCKER_UID
+    - docker context create docker-node --docker "host=ssh://docker-node"
+    - docker --context=docker-node compose up -d
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_TAG
+      when: on_success      
+  tags:
+    - common-docker
+
+tf_destroy:
+  stage: destroy_environment
+  dependencies:
+    - tf_init
+    - tf_plan
+  script:
+    - *gitlab-tf-backend
+    - terraform destroy -auto-approve
+  when: manual
+  allow_failure: true
+  environment:
+    name: ${TF_VAR_SHORT_ENVIRONMENT_NAME}
+    action: stop
+  tags:
+    - common-docker

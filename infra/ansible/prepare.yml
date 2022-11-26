@@ -1,0 +1,26 @@
+---
+- hosts: new_instance:!floating_ip:!bastion
+  pre_tasks:
+    - name: fix hosts file (unable to resolve host)
+      lineinfile:
+        path: /etc/hosts
+        insertbefore: BOF
+        line: "127.0.1.1\t{{ ansible_hostname }}"
+      tags: [prepare]
+  roles:
+    - role: locales-and-timezone
+      become: true
+      tags: [locales, timezone, prepare]
+
+    - role: sudo
+      become: true
+      tags: [sudo, prepare]
+
+    - role: users
+      become: true
+      tags: [users, prepare]
+
+    - role: security
+      become: true
+      tags: [security, prepare]
+...

@@ -1,0 +1,45 @@
+---
+- hosts: new_instance:!floating_ip
+  gather_facts: no
+  tasks:
+    - block:
+        - set_fact:
+            bastion_user: root
+            ansible_ssh_user: root
+          tags: [prepare, bastion]
+
+        - name: Check SSH connection
+          wait_for_connection:
+            timeout: 10
+          check_mode: no
+          changed_when: false
+          tags: [prepare, bastion]
+
+        - gather_facts:
+          tags: [prepare, bastion]
+
+        - name: fix hosts file (unable to resolve host)
+          lineinfile:
+            path: /etc/hosts
+            insertbefore: BOF
+            line: "127.0.1.1\t{{ ansible_hostname }}"
+          tags: [prepare, bastion]
+       
+        - include_role:
+            name: locales-and-timezone
+          tags: [locales, timezone, prepare, bastion]
+
+        - include_role:
+            name: sudo
+          tags: [sudo, prepare, bastion]
+        
+        - include_role:
+            name: users
+          tags: [users, prepare, bastion]
+
+        - include_role:
+            name: security
+          tags: [security, prepare]
+
+      when: inventory_hostname in groups['bastion']
+...
